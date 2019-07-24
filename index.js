@@ -7,7 +7,10 @@ const serveStatic = require('serve-static');
 const basicAuth   = require('basic-auth-connect');
 const user = process.env.USER;
 const pass = process.env.PASS;
-let connects = [];
+const connects = {};
+const userParams = {};
+const waitingUUIDS = [];
+const matchs = {};
 app.set('port', process.env.PORT || 3000);
 if (user && pass) {
   app.use(basicAuth(user, pass));
@@ -16,21 +19,51 @@ app.use(morgan('dev'));
 app.use(compression());
 app.use(serveStatic(`${__dirname}/public`));
 app.ws('/ws', (ws, req) => {
-  connects.push(ws);
   ws.on('message', message => {
-    console.log('Received -', message);
-
-    connects.forEach(socket => {
-      socket.send(message);
-    });
+    console.log('--------- onmessage ---------');
+    var params = JSON.parse(message);
+    switch(params.query){
+      case "connect":
+        connects[params.id] = ws;
+        userParams[params.id] = {
+          uuid: params.id,
+          waiting: false
+        };
+        break;
+      case "waiting":
+        userParams[params.id].waiting = true;
+        var rivalUUID = findRivalUUID(params.id);
+        if(rivalUUID){
+          matchs[params.id] = rivalUUID;
+          matchs[rivalUUID] = params.id;
+          userParams[params.id].waiting = false;
+        }
+        break;
+      case "sendMap":
+        var rivalUUID = matchs[params.id];
+        console.log("rivalUUID", rivalUUID);
+        if(rivalUUID){
+          connects[rivalUUID].send(JSON.stringify(params));
+        }
+        break;
+    }
+    console.log(userParams);
   });
 
   ws.on('close', () => {
-    connects = connects.filter(conn => {
-      return (conn === ws) ? false : true;
-    });
+    var key = Object.keys(connects).find(key=>connects[key]===ws);
+    delete connects[key];
   });
 });
 app.listen(app.get('port'), () => {
   console.log('Server listening on port %s', app.get('port'));
 });
+
+
+function findRivalUUID(playerUUID){
+  var rival = Object.keys(connects).find(key=>key!=playerUUID && userParams[key].waiting);
+  if(rival){
+    userParams[rival].waiting = false;
+  }
+  return rival;
+}

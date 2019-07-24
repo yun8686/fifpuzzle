@@ -12,15 +12,9 @@
     <link rel="stylesheet" href="./css/style.css">
 
     <script src="http://cdn.rawgit.com/phi-jp/phina.js/v0.2.0/build/phina.js"></script>
+    <script src="./js/common.js"></script>
     <script src="./js/game/main.js"></script>
     <script>
-    (function() {
-      var HOST = location.origin.replace(/^http/, 'ws');
-      var ws = new WebSocket(HOST + "/ws");
-      ws.onopen = (event)=>{
-        ws.send('connected my' + JSON.stringify(event));
-      };
-    }());
     </script>
   </head>
   <body>

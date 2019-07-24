@@ -10,6 +10,8 @@ var RIVAL_PIECE_SIZE = (DISPLAY_WITDH/12);
  */
 phina.define("MainScene", {
   pieceLists: [],
+  rivalPieceLists: [],
+  playerUuid: Common.generateUuid(),
   cursorPiece:null,
   // 継承
   superClass: 'DisplayScene',
@@ -20,8 +22,6 @@ phina.define("MainScene", {
     // グリッド
     var gx = this.gridX;
     var gy = this.gridY;
-    console.log('gx.width', gx.width);
-    console.log('gy.width', gy.width);
     // 横線
     var axeX = RectangleShape({
       width: gx.width,
@@ -52,17 +52,15 @@ phina.define("MainScene", {
     var mainGridX = Grid({width: gx.width, columns: PIECE_NUM_XY, offset: PIECE_SIZE/2});
     var mainGridY = Grid({width: gx.width, columns: PIECE_NUM_XY, offset: gy.width - gx.width + (PIECE_SIZE/2)});
     (PIECE_NUM_XY).times((spanY)=>{
-      this.pieceLists[spanY] = [];
       (PIECE_NUM_XY).times((spanX) => {
         var piece = Piece(PIECE_SIZE, spanX+spanY*PIECE_NUM_XY, spanX, spanY, mainGridX, mainGridY).addChildTo(mainGroup);
-        piece.setPosition(mainGridX.span(spanX), mainGridY.span(spanY));
-        this.pieceLists[spanY][spanX] = piece;
+        piece.setPos();
         piece.setInteractive(true);
         piece.onpointend = () => {
-          console.log("tap", piece.x);
           this.movePiece(this.cursorPiece, piece);
           //this.movePiece(p);
         };
+        this.pieceLists[spanX+spanY*PIECE_NUM_XY] = piece;
         if(PIECE_NUM_XY*PIECE_NUM_XY-1 == spanX+spanY*PIECE_NUM_XY) this.cursorPiece = piece;
       });
     });
@@ -70,18 +68,32 @@ phina.define("MainScene", {
     var rivalGroup = DisplayElement().addChildTo(this);
     var rivalGridX = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: gx.width - (RIVAL_PIECE_SIZE/2)*8 });
     var rivalGridY = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: RIVAL_PIECE_SIZE/2 + (RIVAL_PIECE_SIZE/2)});
-    (PIECE_NUM_XY).times(function(spanY) {
-      (PIECE_NUM_XY).times(function(spanX) {
+    (PIECE_NUM_XY).times((spanY)=>{
+      (PIECE_NUM_XY).times((spanX)=>{
         var piece = Piece(RIVAL_PIECE_SIZE, spanX+spanY*PIECE_NUM_XY, spanX, spanY, rivalGridX, rivalGridY).addChildTo(mainGroup);
         piece.setPos();
         piece.setInteractive(true);
         piece.onpointend = () => {
-          console.log("tap", piece.number);
           //this.movePiece(p);
         };
+        this.rivalPieceLists[spanX+spanY*PIECE_NUM_XY] = piece;
       });
     });
     this.ws = this.websocket();
+    this.ws.onmessage = (data)=>{
+      const param = JSON.parse(data.data);
+      var pieceList = param.table.map((v,i)=>{
+        return Piece.getPieceByNumber(this.rivalPieceLists, v.number);
+      });
+      Flow((resolve)=>{
+        param.table.map((v,i)=>{
+          pieceList[i].setSpan(this.rivalPieceLists, v);
+          this.rivalPieceLists[i].movePos(100);
+        });
+        resolve();
+      }).then(v=>{
+      })
+    }
   },
   update: function(app){
 //    if(this.ws.readyState == this.ws.OPEN)
@@ -93,19 +105,24 @@ phina.define("MainScene", {
     var HOST = location.origin.replace(/^http/, 'ws');
     var ws = new WebSocket(HOST + "/ws");
     ws.onopen = (event)=>{
-      ws.send('connected my');
+      ws.send(JSON.stringify({
+        query: "connect",
+        id: this.playerUuid,
+      }));
+      ws.send(JSON.stringify({
+        query: "waiting",
+        id: this.playerUuid,
+      }));
     };
     return ws;
   },
   sendSocket: function(data){
     if(this.ws.readyState == this.ws.OPEN){
-      this.ws.send(data);
+      this.ws.send(JSON.stringify(data));
     }
   },
   // ピースの位置を入れ替える(Pos情報,PieceList情報も入れ替える)
   swapPiece: function(pieceLists, piece, targetPiece){
-    var piecex = piece.x, piecey = piece.y;
-    var targetPiecex = targetPiece.x, targetPiecey = targetPiece.y;
     var pieceSpan = piece.getSpan();
     var targetPieceSpan = targetPiece.getSpan();
     piece.setSpan(pieceLists, targetPieceSpan);
@@ -121,17 +138,17 @@ phina.define("MainScene", {
         if(xdif == 0){
           var cursorSpan = cursorPiece.getSpan();
           var targetSpan = targetPiece.getSpan();
-          if(cursorSpan.y < targetSpan.y){
-            while(cursorSpan.y < targetSpan.y){
-              var nextSpan = {x:cursorSpan.x, y:cursorSpan.y+1};
+          if(cursorSpan.SpanY < targetSpan.SpanY){
+            while(cursorSpan.SpanY < targetSpan.SpanY){
+              var nextSpan = {SpanX:cursorSpan.SpanX, SpanY:cursorSpan.SpanY+1};
               var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
               var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
               this.swapPiece(this.pieceLists, p1, p2);
               cursorSpan = nextSpan;
             }
           }else{
-            while(cursorSpan.y > targetSpan.y){
-              var nextSpan = {x:cursorSpan.x, y:cursorSpan.y-1};
+            while(cursorSpan.SpanY > targetSpan.SpanY){
+              var nextSpan = {SpanX:cursorSpan.SpanX, SpanY:cursorSpan.SpanY-1};
               var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
               var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
               this.swapPiece(this.pieceLists, p1, p2);
@@ -141,17 +158,17 @@ phina.define("MainScene", {
         }else{
           var cursorSpan = cursorPiece.getSpan();
           var targetSpan = targetPiece.getSpan();
-          if(cursorSpan.x < targetSpan.x){
-            while(cursorSpan.x < targetSpan.x){
-              var nextSpan = {x:cursorSpan.x+1, y:cursorSpan.y};
+          if(cursorSpan.SpanX < targetSpan.SpanX){
+            while(cursorSpan.SpanX < targetSpan.SpanX){
+              var nextSpan = {SpanX:cursorSpan.SpanX+1, SpanY:cursorSpan.SpanY};
               var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
               var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
               this.swapPiece(this.pieceLists, p1, p2);
               cursorSpan = nextSpan;
             }
           }else{
-            while(cursorSpan.x > targetSpan.x){
-              var nextSpan = {x:cursorSpan.x-1, y:cursorSpan.y};
+            while(cursorSpan.SpanX > targetSpan.SpanX){
+              var nextSpan = {SpanX:cursorSpan.SpanX-1, SpanY:cursorSpan.SpanY};
               var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
               var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
               this.swapPiece(this.pieceLists, p1, p2);
@@ -160,10 +177,15 @@ phina.define("MainScene", {
           }
         }
         // ピースを動かすアニメーション
-        this.pieceLists.map(v=>v.forEach(w=>w.movePos(100)));
+        this.pieceLists.map(v=>v.movePos(100));
         resolve();
       }).then(()=>{
-        this.sendSocket(JSON.stringify(this.pieceLists.map(v=>v.map(w=>w.number))));
+        const data = {
+          query: "sendMap",
+          id: this.playerUuid,
+          table: this.pieceLists.map(v=>v.getSpan()),
+        };
+        this.sendSocket(data);
       });
     }
   }
@@ -196,23 +218,30 @@ phina.define('Piece', {
       if(this.number+1 == PIECE_NUM_XY*PIECE_NUM_XY) this.hide();
     },
     getSpan(){
-      return {x: this.spanX, y:this.spanY};
+      return {number: this.number, SpanX: this.spanX, SpanY:this.spanY};
     },
     setSpan(pieceLists, span){
-      this.spanX = span.x;
-      this.spanY = span.y;
-      pieceLists[this.spanY][this.spanX] = this;
+      this.spanX = span.SpanX;
+      this.spanY = span.SpanY;
+      pieceLists[this.spanX+this.spanY*PIECE_NUM_XY] = this;
     },
     setPos(){
       this.setPosition(this.gridX.span(this.spanX), this.gridY.span(this.spanY));
     },
     movePos(time){
-      this.tweener.clear().to({x: this.gridX.span(this.spanX),y: this.gridY.span(this.spanY)}, time, 'easeOutCubic');
+      this.tweener.clear().to({
+        x: this.gridX.span(this.spanX),
+        y: this.gridY.span(this.spanY)
+      }, time, 'easeOutCubic');
     }
 });
-Piece.getPieceBySpan = function(pieceLists, {x,y}){
-  return pieceLists[y][x];
+Piece.getPieceBySpan = function(pieceLists, {SpanX,SpanY}){
+  return pieceLists[SpanX+SpanY*PIECE_NUM_XY];
 };
+Piece.getPieceByNumber = function(pieceLists, number){
+  console.log("getPieceByNumber", pieceLists.map(v=>v.number));
+  return pieceLists.find(v=>v.number == number);
+}
 
 /*
  * メイン処理
