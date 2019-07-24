@@ -54,13 +54,13 @@ phina.define("MainScene", {
     (PIECE_NUM_XY).times((spanY)=>{
       this.pieceLists[spanY] = [];
       (PIECE_NUM_XY).times((spanX) => {
-        var piece = Piece(PIECE_SIZE, spanX+spanY*PIECE_NUM_XY, spanX, spanY).addChildTo(mainGroup);
+        var piece = Piece(PIECE_SIZE, spanX+spanY*PIECE_NUM_XY, spanX, spanY, mainGridX, mainGridY).addChildTo(mainGroup);
         piece.setPosition(mainGridX.span(spanX), mainGridY.span(spanY));
         this.pieceLists[spanY][spanX] = piece;
         piece.setInteractive(true);
         piece.onpointend = () => {
           console.log("tap", piece.x);
-          this.swapPiece(this.cursorPiece, piece);
+          this.movePiece(this.cursorPiece, piece);
           //this.movePiece(p);
         };
         if(PIECE_NUM_XY*PIECE_NUM_XY-1 == spanX+spanY*PIECE_NUM_XY) this.cursorPiece = piece;
@@ -68,12 +68,12 @@ phina.define("MainScene", {
     });
 
     var rivalGroup = DisplayElement().addChildTo(this);
-    var mainGridX = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: gx.width - (RIVAL_PIECE_SIZE/2)*8 });
-    var mainGridY = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: RIVAL_PIECE_SIZE/2 + (RIVAL_PIECE_SIZE/2)});
-    (PIECE_NUM_XY).times(function(spanX) {
-      (PIECE_NUM_XY).times(function(spanY) {
-        var piece = Piece(RIVAL_PIECE_SIZE, spanX*4+spanY, spanX, spanY).addChildTo(mainGroup);
-        piece.setPosition(mainGridX.span(spanX), mainGridY.span(spanY));
+    var rivalGridX = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: gx.width - (RIVAL_PIECE_SIZE/2)*8 });
+    var rivalGridY = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: RIVAL_PIECE_SIZE/2 + (RIVAL_PIECE_SIZE/2)});
+    (PIECE_NUM_XY).times(function(spanY) {
+      (PIECE_NUM_XY).times(function(spanX) {
+        var piece = Piece(RIVAL_PIECE_SIZE, spanX+spanY*PIECE_NUM_XY, spanX, spanY, rivalGridX, rivalGridY).addChildTo(mainGroup);
+        piece.setPos();
         piece.setInteractive(true);
         piece.onpointend = () => {
           console.log("tap", piece.number);
@@ -102,20 +102,69 @@ phina.define("MainScene", {
       this.ws.send(data);
     }
   },
-  swapPiece: function(piece1, piece2){
-    var xdif = piece1.x-piece2.x;
-    var ydif = piece1.y-piece2.y;
+  // ピースの位置を入れ替える(Pos情報,PieceList情報も入れ替える)
+  swapPiece: function(pieceLists, piece, targetPiece){
+    var piecex = piece.x, piecey = piece.y;
+    var targetPiecex = targetPiece.x, targetPiecey = targetPiece.y;
+    var pieceSpan = piece.getSpan();
+    var targetPieceSpan = targetPiece.getSpan();
+    piece.setSpan(pieceLists, targetPieceSpan);
+    targetPiece.setSpan(pieceLists, pieceSpan);
+  },
+  // ピースを動かす処理(cursorPieceをtargetPieceの位置まで入れ替えながら移動する 1-2-3-4 => 4-1-2-3)
+  movePiece: function(cursorPiece, targetPiece){
+    var xdif = cursorPiece.x-targetPiece.x;
+    var ydif = cursorPiece.y-targetPiece.y;
     if( xdif == 0 || ydif == 0 ){  // 横か縦が同じとき
-      var time = 100; // 入れ替えにかかる時間
+      if(xdif+ydif == 0) return;  // 両方同じ場合は何もしない
       Flow((resolve)=>{
-        var x1 = piece1.x, y1 = piece1.y;
-        var x2 = piece2.x, y2 = piece2.y;
-        piece1.tweener.clear().to({x: x1,y: y1-ydif}, time, 'easeOutCubic');
-        piece2.tweener.clear().to({x: x2,y: y2+ydif}, time, 'easeOutCubic');
+        if(xdif == 0){
+          var cursorSpan = cursorPiece.getSpan();
+          var targetSpan = targetPiece.getSpan();
+          if(cursorSpan.y < targetSpan.y){
+            while(cursorSpan.y < targetSpan.y){
+              var nextSpan = {x:cursorSpan.x, y:cursorSpan.y+1};
+              var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
+              var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
+              this.swapPiece(this.pieceLists, p1, p2);
+              cursorSpan = nextSpan;
+            }
+          }else{
+            while(cursorSpan.y > targetSpan.y){
+              var nextSpan = {x:cursorSpan.x, y:cursorSpan.y-1};
+              var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
+              var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
+              this.swapPiece(this.pieceLists, p1, p2);
+              cursorSpan = nextSpan;
+            }
+          }
+        }else{
+          var cursorSpan = cursorPiece.getSpan();
+          var targetSpan = targetPiece.getSpan();
+          if(cursorSpan.x < targetSpan.x){
+            while(cursorSpan.x < targetSpan.x){
+              var nextSpan = {x:cursorSpan.x+1, y:cursorSpan.y};
+              var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
+              var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
+              this.swapPiece(this.pieceLists, p1, p2);
+              cursorSpan = nextSpan;
+            }
+          }else{
+            while(cursorSpan.x > targetSpan.x){
+              var nextSpan = {x:cursorSpan.x-1, y:cursorSpan.y};
+              var p1 = Piece.getPieceBySpan(this.pieceLists, cursorSpan);
+              var p2 = Piece.getPieceBySpan(this.pieceLists, nextSpan);
+              this.swapPiece(this.pieceLists, p1, p2);
+              cursorSpan = nextSpan;
+            }
+          }
+        }
+        // ピースを動かすアニメーション
+        this.pieceLists.map(v=>v.forEach(w=>w.movePos(100)));
         resolve();
       }).then(()=>{
         this.sendSocket(JSON.stringify(this.pieceLists.map(v=>v.map(w=>w.number))));
-      })
+      });
     }
   }
 });
@@ -125,7 +174,7 @@ phina.define('Piece', {
   // RectangleShapeを継承
   superClass: 'RectangleShape',
     // コンストラクタ
-    init: function(piece_size, number, spanX, spanY) {
+    init: function(piece_size, number, spanX, spanY, gridX, gridY) {
       // 親クラス初期化
       this.superInit({
         width: piece_size*0.95,
@@ -137,6 +186,8 @@ phina.define('Piece', {
       this.number = number;
       this.spanX = spanX;
       this.spanY = spanY;
+      this.gridX = gridX;
+      this.gridY = gridY;
       this.label = Label({
         text: number+1,
         fontSize: piece_size*0.5,
@@ -144,7 +195,24 @@ phina.define('Piece', {
       }).addChildTo(this);
       if(this.number+1 == PIECE_NUM_XY*PIECE_NUM_XY) this.hide();
     },
+    getSpan(){
+      return {x: this.spanX, y:this.spanY};
+    },
+    setSpan(pieceLists, span){
+      this.spanX = span.x;
+      this.spanY = span.y;
+      pieceLists[this.spanY][this.spanX] = this;
+    },
+    setPos(){
+      this.setPosition(this.gridX.span(this.spanX), this.gridY.span(this.spanY));
+    },
+    movePos(time){
+      this.tweener.clear().to({x: this.gridX.span(this.spanX),y: this.gridY.span(this.spanY)}, time, 'easeOutCubic');
+    }
 });
+Piece.getPieceBySpan = function(pieceLists, {x,y}){
+  return pieceLists[y][x];
+};
 
 /*
  * メイン処理
