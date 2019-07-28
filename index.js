@@ -23,12 +23,14 @@ app.ws('/ws', (ws, req) => {
   ws.on('message', message => {
     console.log('--------- onmessage ---------');
     var params = JSON.parse(message);
+    console.log(params);
     switch(params.query){
       case "connect":
-        connects[params.id] = ws;
-        userParams[params.id] = {
-          uuid: params.id,
-          waiting: false
+        connects[params.Player.uuid] = ws;
+        userParams[params.Player.uuid] = {
+          uuid: params.Player.uuid,
+          name: params.Player.name,
+          waiting: false,
         };
         break;
       case "waiting":
@@ -37,8 +39,10 @@ app.ws('/ws', (ws, req) => {
         if(rivalUUID){
           matchs[params.id] = rivalUUID;
           matchs[rivalUUID] = params.id;
-          connects[params.id].send(JSON.stringify({query: "matching", rivalUUID: rivalUUID}));
-          connects[rivalUUID].send(JSON.stringify({query: "matching", rivalUUID: params.id}));
+          console.log("send", params.id);
+          connects[params.id].send(JSON.stringify({query: "matching", rivalUUID: rivalUUID, rivalName: userParams[rivalUUID].name}));
+          console.log("send", rivalUUID);
+          connects[rivalUUID].send(JSON.stringify({query: "matching", rivalUUID: params.id, rivalName: userParams[params.id].name}));
           console.log ("send ", JSON.stringify({query: "matching", rivalUUID: rivalUUID}))
           console.log ("send ", JSON.stringify({query: "matching", rivalUUID: params.id}))
           userParams[params.id].waiting = false;
@@ -56,15 +60,18 @@ app.ws('/ws', (ws, req) => {
         var playerUUID = params.id;
         var rivalUUID  = matchs[params.id];
         params.query = "game_finish";
-        connects[playerUUID].send(JSON.stringify({
-          query: "game_finish",
-          won: true,
-        }));
-        connects[rivalUUID].send(JSON.stringify({
-          query: "game_finish",
-          won: false,
-        }));
-
+        if(connects[playerUUID]){
+          connects[playerUUID].send(JSON.stringify({
+            query: "game_finish",
+            won: true,
+          }));
+        }
+        if(connects[rivalUUID]){
+          connects[rivalUUID].send(JSON.stringify({
+            query: "game_finish",
+            won: false,
+          }));
+        }
     }
     console.log(userParams);
   });

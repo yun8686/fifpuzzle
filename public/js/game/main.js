@@ -5,13 +5,13 @@ var DISPLAY_WITDH = 640;
 var PIECE_NUM_XY = 4;              // 縦横のピース数
 var PIECE_SIZE = (DISPLAY_WITDH/4);
 var RIVAL_PIECE_SIZE = (DISPLAY_WITDH/12);
+
 /*
  * メインシーン
  */
-phina.define("MainScene", {
+phina.define("GameScene", {
   pieceLists: [],
   rivalPieceLists: [],
-  playerUuid: Common.generateUuid(),
   cursorPiece:null,
   infoPanel: {},
   mainGridX:null, mainGridY:null,
@@ -25,9 +25,13 @@ phina.define("MainScene", {
   // 継承
   superClass: 'DisplayScene',
   // 初期化
-  init: function() {
+  init: function(params) {
     // 親クラス初期化
-    this.superInit();
+    this.superInit(params);
+
+    this.status.rivalUUID = params.rivalName;
+    console.log(params);
+
     // グリッド
     var gx = this.gridX;
     var gy = this.gridY;
@@ -77,7 +81,7 @@ phina.define("MainScene", {
             if(this.checkClear(this.pieceLists)){
               this.sendSocket({
                 query: "won",
-                id: this.playerUuid,
+                id: this.Player.uuid,
               });
               this.status.won = true;
             }
@@ -115,85 +119,40 @@ phina.define("MainScene", {
         resolve();
       });
     }
-    this.websocket()
+
+    this.websocket();
+
+    this.status.matched = true;
+    this.sufflePiece(this.pieceLists);
+    this.pieceLists.map(v=>v.movePos(100));
 
   },
   update: function(app){
-    this.infoPanel.text = `matched: ${this.status.matched?"Yes":"No"}\n`;
-    this.infoPanel.text += `rivalUUID: ${this.status.rivalUUID}`;
+    this.infoPanel.text = `相手の名前: ${this.status.rivalUUID}`;
 
 
 //    if(this.ws.readyState == this.ws.OPEN)
 //      this.ws.send(app);
 //    console.log("update", new Date()-0);
   },
-  ws: null,
-  wsListener: {
-    onRivalUpdate: function(){
-    },
-    onMatching: function(){
-    },
-  },
   websocket: function(){
-    var HOST = location.origin.replace(/^http/, 'ws');
-    var ws = new WebSocket(HOST + "/ws");
-    this.ws = ws;
-    ws.onopen = (event)=>{
-      ws.send(JSON.stringify({
-        query: "connect",
-        id: this.playerUuid,
-      }));
-      ws.send(JSON.stringify({
-        query: "waiting",
-        id: this.playerUuid,
-      }));
-      this.wsListener.onMatching = (data)=>{
-        this.status.matched = true;
-        this.status.rivalUUID = data.rivalUUID;
-        for(var i=0;i<128;){
-          var a = ~~(Math.random()*15);
-          var b = ~~(Math.random()*15);
-          if(a!=b){
-            var p1 = this.pieceLists[a];
-            var p2 = this.pieceLists[b];
-            this.swapPiece(this.pieceLists, p1, p2);
-            i++;
-          }
-        }
-        this.pieceLists.map(v=>v.movePos(100));
-      };
-      this.wsListener.onGameFinish = (data)=>{
-        const won = data.won;
-        if(won){
-          this.status.won = true;
-          Label({
-            text: 'You Win',
-            fontSize: 24,
-          }).addChildTo(this).setPosition(this.mainGridX.center(), this.mainGridY.center());
-        }else{
-          this.status.lose = true;
-          Label({
-            text: 'You Lose',
-            fontSize: 24,
-          }).addChildTo(this).setPosition(this.mainGridX.center(), this.mainGridY.center());
-        }
-      };
-    };
-    ws.onmessage = ({data})=>{
-      data = JSON.parse(data);
-      const query = data.query;
-      switch(query){
-        case "rival_update":
-          this.wsListener.onRivalUpdate(data);
-          break;
-        case "matching":
-          this.wsListener.onMatching(data);
-          break;
-        case "game_finish":
-          this.wsListener.onGameFinish(data);
-          break;
+    var ws = this.ws;
+    this.wsListener.onGameFinish = (data)=>{
+      const won = data.won;
+      if(won){
+        this.status.won = true;
+        Label({
+          text: 'You Win',
+          fontSize: 24,
+        }).addChildTo(this).setPosition(this.mainGridX.center(), this.mainGridY.center());
+      }else{
+        this.status.lose = true;
+        Label({
+          text: 'You Lose',
+          fontSize: 24,
+        }).addChildTo(this).setPosition(this.mainGridX.center(), this.mainGridY.center());
       }
-    }
+    };
     return ws;
   },
   sendSocket: function(data){
@@ -207,7 +166,18 @@ phina.define("MainScene", {
     }
     return true;
   },
-
+  sufflePiece: function(pieceList){
+    for(var i=0;i<128;){
+      var a = ~~(Math.random()*15);
+      var b = ~~(Math.random()*15);
+      if(a!=b){
+        var p1 = this.pieceLists[a];
+        var p2 = this.pieceLists[b];
+        this.swapPiece(this.pieceLists, p1, p2);
+        i++;
+      }
+    }
+  },
   // ピースの位置を入れ替える(Pos情報,PieceList情報も入れ替える)
   swapPiece: function(pieceLists, piece, targetPiece){
     var pieceSpan = piece.getSpan();
@@ -269,7 +239,7 @@ phina.define("MainScene", {
       }).then(()=>{
         const data = {
           query: "send_map",
-          id: this.playerUuid,
+          id: this.Player.uuid,
           table: this.pieceLists.map(v=>v.getSpan()),
         };
         this.sendSocket(data);
@@ -334,11 +304,76 @@ Piece.getPieceByNumber = function(pieceLists, number){
  * メイン処理
  */
 phina.main(function() {
+  var dom = document.createElement('div');
+
+  var resize = function(){
+    var e = app.domElement;
+    var c = app.canvas;
+    var s = e.style;
+    var ds = dom.style;
+    var rect = e.getBoundingClientRect();
+    ds.width = 0;
+    ds.height= 0;
+    ds.position = 'absolute';
+    ds.left = rect.left + 'px';
+    ds.top = rect.top + 'px';
+    var rate = parseInt(s.width) / c.width;
+    ds.transform = 'scale(' + rate + ',' + rate + ')';
+  };
+
+  window.addEventListener('resize', resize);
+  Scene.prototype.baseDom = dom;
+  Scene.prototype.Player = {
+    uuid: Common.generateUuid(),
+    name: "",
+  };
+
+  var HOST = location.origin.replace(/^http/, 'ws');
+  var ws = new WebSocket(HOST + "/ws");
+  Scene.prototype.ws = ws;
+  Scene.prototype.wsListener = {
+    onRivalUpdate: function(){},
+    onMatching: function(){},
+  };
+  ws.onmessage = ({data})=>{
+    console.log("onmessage", data);
+    data = JSON.parse(data);
+    const query = data.query;
+    switch(query){
+      case "rival_update":
+        Scene.prototype.wsListener.onRivalUpdate(data);
+        break;
+      case "matching":
+        Scene.prototype.wsListener.onMatching(data);
+        break;
+      case "game_finish":
+        Scene.prototype.wsListener.onGameFinish(data);
+        break;
+    }
+  }
+
+
   // アプリケーションを生成
   var app = GameApp({
     // MainScene から開始
-    startLabel: 'main',
+    startLabel: 'title',
+    scenes: [
+     {
+       className: 'TitleScene',
+       label: 'title',
+     },
+     {
+       className: 'WaitingScene',
+       label: 'Waiting',
+       nextLabel: 'GameScene',
+     },{
+       className: 'GameScene',
+       label: 'GameScene',
+     }
+   ],
   });
-  // 実行
+  app.baseDom = dom;
   app.run();
+  resize();
+  app.domElement.parentNode.insertBefore(dom, app.domElement.nextSibling);
 });
