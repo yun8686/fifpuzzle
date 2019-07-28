@@ -7,6 +7,7 @@ const serveStatic = require('serve-static');
 const basicAuth   = require('basic-auth-connect');
 const user = process.env.USER;
 const pass = process.env.PASS;
+
 const connects = {};
 const userParams = {};
 const waitingUUIDS = [];
@@ -36,16 +37,34 @@ app.ws('/ws', (ws, req) => {
         if(rivalUUID){
           matchs[params.id] = rivalUUID;
           matchs[rivalUUID] = params.id;
+          connects[params.id].send(JSON.stringify({query: "matching", rivalUUID: rivalUUID}));
+          connects[rivalUUID].send(JSON.stringify({query: "matching", rivalUUID: params.id}));
+          console.log ("send ", JSON.stringify({query: "matching", rivalUUID: rivalUUID}))
+          console.log ("send ", JSON.stringify({query: "matching", rivalUUID: params.id}))
           userParams[params.id].waiting = false;
         }
         break;
-      case "sendMap":
+      case "send_map":
         var rivalUUID = matchs[params.id];
         console.log("rivalUUID", rivalUUID);
+        params.query = "rival_update";
         if(rivalUUID){
           connects[rivalUUID].send(JSON.stringify(params));
         }
         break;
+      case "won":
+        var playerUUID = params.id;
+        var rivalUUID  = matchs[params.id];
+        params.query = "game_finish";
+        connects[playerUUID].send(JSON.stringify({
+          query: "game_finish",
+          won: true,
+        }));
+        connects[rivalUUID].send(JSON.stringify({
+          query: "game_finish",
+          won: false,
+        }));
+
     }
     console.log(userParams);
   });

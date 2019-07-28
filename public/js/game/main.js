@@ -13,6 +13,15 @@ phina.define("MainScene", {
   rivalPieceLists: [],
   playerUuid: Common.generateUuid(),
   cursorPiece:null,
+  infoPanel: {},
+  mainGridX:null, mainGridY:null,
+  status: {
+    matched: false,
+    won: false,
+    lose: false,
+    rivalUUID: "",
+  },
+
   // 継承
   superClass: 'DisplayScene',
   // 初期化
@@ -47,17 +56,32 @@ phina.define("MainScene", {
       });
     });
 
-
+    var infoGroup = DisplayElement().addChildTo(this);;
+    var infoGridX = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: 0 });
+    var infoGridY = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: 0 });
+    this.infoPanel = Label({
+      text: 'status',
+      fontSize: 24,
+    }).addChildTo(this).setPosition(infoGridX.center(), infoGridY.center());
     var mainGroup = DisplayElement().addChildTo(this);
-    var mainGridX = Grid({width: gx.width, columns: PIECE_NUM_XY, offset: PIECE_SIZE/2});
-    var mainGridY = Grid({width: gx.width, columns: PIECE_NUM_XY, offset: gy.width - gx.width + (PIECE_SIZE/2)});
+    this.mainGridX = Grid({width: gx.width, columns: PIECE_NUM_XY, offset: PIECE_SIZE/2});
+    this.mainGridY = Grid({width: gx.width, columns: PIECE_NUM_XY, offset: gy.width - gx.width + (PIECE_SIZE/2)});
     (PIECE_NUM_XY).times((spanY)=>{
       (PIECE_NUM_XY).times((spanX) => {
-        var piece = Piece(PIECE_SIZE, spanX+spanY*PIECE_NUM_XY, spanX, spanY, mainGridX, mainGridY).addChildTo(mainGroup);
+        var piece = Piece(PIECE_SIZE, spanX+spanY*PIECE_NUM_XY, spanX, spanY, this.mainGridX, this.mainGridY).addChildTo(mainGroup);
         piece.setPos();
         piece.setInteractive(true);
         piece.onpointend = () => {
-          this.movePiece(this.cursorPiece, piece);
+          if(!this.status.won && !this.status.lose){
+            this.movePiece(this.cursorPiece, piece);
+            if(this.checkClear(this.pieceLists)){
+              this.sendSocket({
+                query: "won",
+                id: this.playerUuid,
+              });
+              this.status.won = true;
+            }
+          }
           //this.movePiece(p);
         };
         this.pieceLists[spanX+spanY*PIECE_NUM_XY] = piece;
@@ -79,31 +103,41 @@ phina.define("MainScene", {
         this.rivalPieceLists[spanX+spanY*PIECE_NUM_XY] = piece;
       });
     });
-    this.ws = this.websocket();
-    this.ws.onmessage = (data)=>{
-      const param = JSON.parse(data.data);
-      var pieceList = param.table.map((v,i)=>{
+    this.wsListener.onRivalUpdate = (data)=>{
+      var pieceList = data.table.map((v,i)=>{
         return Piece.getPieceByNumber(this.rivalPieceLists, v.number);
       });
       Flow((resolve)=>{
-        param.table.map((v,i)=>{
+        data.table.map((v,i)=>{
           pieceList[i].setSpan(this.rivalPieceLists, v);
           this.rivalPieceLists[i].movePos(100);
         });
         resolve();
-      }).then(v=>{
-      })
+      });
     }
+    this.websocket()
+
   },
   update: function(app){
+    this.infoPanel.text = `matched: ${this.status.matched?"Yes":"No"}\n`;
+    this.infoPanel.text += `rivalUUID: ${this.status.rivalUUID}`;
+
+
 //    if(this.ws.readyState == this.ws.OPEN)
 //      this.ws.send(app);
 //    console.log("update", new Date()-0);
   },
   ws: null,
+  wsListener: {
+    onRivalUpdate: function(){
+    },
+    onMatching: function(){
+    },
+  },
   websocket: function(){
     var HOST = location.origin.replace(/^http/, 'ws');
     var ws = new WebSocket(HOST + "/ws");
+    this.ws = ws;
     ws.onopen = (event)=>{
       ws.send(JSON.stringify({
         query: "connect",
@@ -113,7 +147,53 @@ phina.define("MainScene", {
         query: "waiting",
         id: this.playerUuid,
       }));
+      this.wsListener.onMatching = (data)=>{
+        this.status.matched = true;
+        this.status.rivalUUID = data.rivalUUID;
+        for(var i=0;i<128;){
+          var a = ~~(Math.random()*15);
+          var b = ~~(Math.random()*15);
+          if(a!=b){
+            var p1 = this.pieceLists[a];
+            var p2 = this.pieceLists[b];
+            this.swapPiece(this.pieceLists, p1, p2);
+            i++;
+          }
+        }
+        this.pieceLists.map(v=>v.movePos(100));
+      };
+      this.wsListener.onGameFinish = (data)=>{
+        const won = data.won;
+        if(won){
+          this.status.won = true;
+          Label({
+            text: 'You Win',
+            fontSize: 24,
+          }).addChildTo(this).setPosition(this.mainGridX.center(), this.mainGridY.center());
+        }else{
+          this.status.lose = true;
+          Label({
+            text: 'You Lose',
+            fontSize: 24,
+          }).addChildTo(this).setPosition(this.mainGridX.center(), this.mainGridY.center());
+        }
+      };
     };
+    ws.onmessage = ({data})=>{
+      data = JSON.parse(data);
+      const query = data.query;
+      switch(query){
+        case "rival_update":
+          this.wsListener.onRivalUpdate(data);
+          break;
+        case "matching":
+          this.wsListener.onMatching(data);
+          break;
+        case "game_finish":
+          this.wsListener.onGameFinish(data);
+          break;
+      }
+    }
     return ws;
   },
   sendSocket: function(data){
@@ -121,6 +201,13 @@ phina.define("MainScene", {
       this.ws.send(JSON.stringify(data));
     }
   },
+  checkClear: function(pieceLists){
+    for(var i=0;i<pieceLists.length;i++){
+      if(i != pieceLists[i].number) return false;
+    }
+    return true;
+  },
+
   // ピースの位置を入れ替える(Pos情報,PieceList情報も入れ替える)
   swapPiece: function(pieceLists, piece, targetPiece){
     var pieceSpan = piece.getSpan();
@@ -181,7 +268,7 @@ phina.define("MainScene", {
         resolve();
       }).then(()=>{
         const data = {
-          query: "sendMap",
+          query: "send_map",
           id: this.playerUuid,
           table: this.pieceLists.map(v=>v.getSpan()),
         };
