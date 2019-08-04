@@ -10,7 +10,6 @@ const pass = process.env.PASS;
 
 const connects = {};
 const userParams = {};
-const waitingUUIDS = [];
 const matchs = {};
 app.set('port', process.env.PORT || 3000);
 if (user && pass) {
@@ -61,30 +60,34 @@ app.ws('/ws', (ws, req) => {
         var rivalUUID  = matchs[params.id];
         params.query = "game_finish";
         if(connects[playerUUID]){
-          connects[playerUUID].send(JSON.stringify({
-            query: "game_finish",
-            won: true,
-          }));
+          gameFinsh(playerUUID, true);
         }
         if(connects[rivalUUID]){
-          connects[rivalUUID].send(JSON.stringify({
-            query: "game_finish",
-            won: false,
-          }));
+          gameFinsh(rivalUUID, false);
         }
     }
     console.log(userParams);
   });
-
   ws.on('close', () => {
-    var key = Object.keys(connects).find(key=>connects[key]===ws);
-    delete connects[key];
+    var playerUUID = Object.keys(connects).find(key=>connects[key]===ws);
+    var rivalUUID = matchs[playerUUID];
+    gameFinsh(rivalUUID, true);
+    delete userParams[playerUUID];
+    delete connects[playerUUID];
   });
 });
 app.listen(app.get('port'), () => {
   console.log('Server listening on port %s', app.get('port'));
 });
 
+function gameFinsh(playerUUID, won){
+  if(connects[playerUUID]){
+    connects[playerUUID].send(JSON.stringify({
+      query: "game_finish",
+      won: won,
+    }));
+  }
+}
 
 function findRivalUUID(playerUUID){
   var rival = Object.keys(connects).find(key=>key!=playerUUID && userParams[key].waiting);

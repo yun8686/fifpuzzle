@@ -19,6 +19,7 @@ phina.define("GameScene", {
     matched: false,
     won: false,
     lose: false,
+    start: null,
     rivalUUID: "",
   },
 
@@ -36,7 +37,7 @@ phina.define("GameScene", {
     var gx = this.gridX;
     var gy = this.gridY;
     // 横線
-    var axeX = RectangleShape({
+/*    var axeX = RectangleShape({
       width: gx.width,
       height: 2,
       fill: '#aaa',
@@ -59,7 +60,7 @@ phina.define("GameScene", {
         }).addChildTo(pointGroup).setPosition(gx.span(spanX), gy.span(spanY));
       });
     });
-
+*/
     var infoGroup = DisplayElement().addChildTo(this);;
     var infoGridX = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: 0 });
     var infoGridY = Grid({width: gx.width/3, columns: PIECE_NUM_XY, offset: 0 });
@@ -125,11 +126,12 @@ phina.define("GameScene", {
     this.status.matched = true;
     this.sufflePiece(this.pieceLists);
     this.pieceLists.map(v=>v.movePos(100));
-
+    this.status.start = new Date();
   },
   update: function(app){
-    this.infoPanel.text = `相手の名前: ${this.status.rivalUUID}`;
-
+    var time = new Date()-this.status.start;
+    this.infoPanel.text = `相手の名前: ${this.status.rivalUUID}\n`;
+    this.infoPanel.text += (~~(time/1000)) + "." + (time%1000);
 
 //    if(this.ws.readyState == this.ws.OPEN)
 //      this.ws.send(app);
@@ -177,6 +179,12 @@ phina.define("GameScene", {
         i++;
       }
     }
+    const data = {
+      query: "send_map",
+      id: this.Player.uuid,
+      table: this.pieceLists.map(v=>v.getSpan()),
+    };
+    this.sendSocket(data);
   },
   // ピースの位置を入れ替える(Pos情報,PieceList情報も入れ替える)
   swapPiece: function(pieceLists, piece, targetPiece){
